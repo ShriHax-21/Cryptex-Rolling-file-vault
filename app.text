@@ -1,0 +1,316 @@
+# app.py
+# Tkinter GUI for Nettoss Rolling File Vault
+
+
+import customtkinter as ctk
+import tkinter.filedialog as filedialog
+from vault.explorer import VaultExplorer
+
+class VaultApp:
+    def _pkcs7_pad(self, data, block_size):
+        pad_len = block_size - (len(data) % block_size)
+        return data + bytes([pad_len] * pad_len)
+
+    def _pkcs7_unpad(self, data):
+        pad_len = data[-1]
+        if pad_len < 1 or pad_len > len(data):
+            raise ValueError('Invalid padding')
+        if data[-pad_len:] != bytes([pad_len] * pad_len):
+            raise ValueError('Invalid padding')
+        return data[:-pad_len]
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title('Nettoss – Rolling File Vault')
+        self.master_secret = None
+        self.key_manager = None
+        self.crypto_engine = None
+        self.password_frame = None
+        return
+        try:
+            from Crypto.Cipher import AES, DES, DES3
+            import os, json
+            alg = self.alg_var.get()
+            mode = self.mode_var.get()
+            with open(self.file_path, 'rb') as f:
+                header = f.readline()
+                enc_dict = json.loads(header.decode())
+                ciphertext = f.read()
+            if alg == 'AES':
+                key = self.crypto_engine.key[:32]
+                cipher_mode = getattr(AES, f"MODE_{mode}")
+                if mode == 'GCM':
+                    cipher = AES.new(key, cipher_mode, nonce=bytes.fromhex(enc_dict['nonce']))
+                    dec_bytes = cipher.decrypt_and_verify(ciphertext, bytes.fromhex(enc_dict['tag']))
+                elif mode == 'CBC':
+                    cipher = AES.new(key, cipher_mode, iv=bytes.fromhex(enc_dict['iv']))
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = AES.new(key, cipher_mode)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+            elif alg == 'DES':
+                key = self.crypto_engine.key[:8]
+                cipher_mode = getattr(DES, f"MODE_{mode}")
+                if mode == 'GCM':
+                    self._set_output('DES does not support GCM mode.')
+                    return
+                elif mode == 'CBC':
+                    cipher = DES.new(key, cipher_mode, iv=bytes.fromhex(enc_dict['iv']))
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = DES.new(key, cipher_mode)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+            elif alg == '3DES':
+                key = self.crypto_engine.key[:24]
+                cipher_mode = getattr(DES3, f"MODE_{mode}")
+                if mode == 'GCM':
+                    self._set_output('3DES does not support GCM mode.')
+                    return
+                elif mode == 'CBC':
+                    cipher = DES3.new(key, cipher_mode, iv=bytes.fromhex(enc_dict['iv']))
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = DES3.new(key, cipher_mode)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+            else:
+                self._set_output('Unsupported algorithm.')
+                return
+            filename = os.path.basename(self.file_path)
+            if filename.endswith('.enc'):
+                filename = filename[:-4]
+            out_path = os.path.join('./storage/encrypted_files', filename + f'.decrypted')
+            with open(out_path, 'wb') as f:
+                f.write(dec_bytes)
+            self._set_output(f'Success: File decrypted and saved to {out_path}')
+        except Exception as g:
+            self._set_output(f'Error: Decryption failed: {g}')
+        # Title
+        title = ctk.CTkLabel(frame, text='NetToss: secure vault', font=('Segoe UI', 20, 'bold'), text_color='#155fa0')
+        title.pack(pady=(18, 10), fill='x')
+
+        # Vault file explorer (from vault/explorer.py)
+        self.vault_explorer = VaultExplorer(frame)
+        self.vault_explorer.pack(pady=(0, 10), fill='x', padx=10)
+
+        # File selection row
+        file_row = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
+        file_row.pack(pady=(8, 10), fill='x', padx=10)
+        select_btn = ctk.CTkButton(file_row, text='Browse Files', font=('Segoe UI', 13, 'bold'), fg_color='#1976d2', command=self.select_file, width=140, height=36, corner_radius=12)
+        select_btn.pack(side='left', padx=(0, 16))
+        self.file_entry = ctk.CTkEntry(file_row, font=('Segoe UI', 13), width=320, height=36, corner_radius=12, state='readonly')
+        self.file_entry.pack(side='left', fill='x', expand=True)
+
+        # Crypto options box
+        options_box = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
+        options_box.pack(pady=(10, 0), fill='x', padx=10)
+        ctk.CTkLabel(options_box, text='Algorithm:', font=('Segoe UI', 12, 'bold'), text_color='#155fa0').pack(side='left', padx=(10, 2))
+        self.alg_var = ctk.StringVar(value='AES')
+        alg_menu = ctk.CTkComboBox(options_box, variable=self.alg_var, values=['AES', 'DES', '3DES'], font=('Segoe UI', 12), width=90, height=32, corner_radius=8, state='readonly')
+        alg_menu.pack(side='left', padx=(0, 12))
+        ctk.CTkLabel(options_box, text='Mode:', font=('Segoe UI', 12, 'bold'), text_color='#155fa0').pack(side='left', padx=(10, 2))
+        self.mode_var = ctk.StringVar(value='GCM')
+        mode_menu = ctk.CTkComboBox(options_box, variable=self.mode_var, values=['CBC', 'GCM', 'ECB'], font=('Segoe UI', 12), width=90, height=32, corner_radius=8, state='readonly')
+        mode_menu.pack(side='left', padx=(0, 12))
+
+        # Action buttons in a box
+        action_box = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
+        action_box.pack(pady=(10, 16), fill='x', padx=10)
+        encrypt_btn = ctk.CTkButton(action_box, text='Encrypt', font=('Segoe UI', 15, 'bold'), fg_color='#1976d2', command=self.encrypt_file, width=160, height=48, corner_radius=16)
+        encrypt_btn.pack(side='left', padx=(30, 20), pady=12)
+        decrypt_btn = ctk.CTkButton(action_box, text='Decrypt', font=('Segoe UI', 15, 'bold'), fg_color='#155fa0', command=self.decrypt_file, width=160, height=48, corner_radius=16)
+        decrypt_btn.pack(side='left', padx=(20, 30), pady=12)
+
+        # Output box for status messages
+        output_frame = ctk.CTkFrame(self.root, fg_color='#b3d8f8', corner_radius=15, width=620, height=120)
+        output_frame.place(relx=0.5, rely=0.88, anchor='center')
+        output_label = ctk.CTkLabel(output_frame, text='Output', font=('Segoe UI', 14, 'bold'), text_color='#155fa0', anchor='w')
+        output_label.pack(anchor='w', padx=10, pady=(6, 0))
+        self.output_box = ctk.CTkTextbox(output_frame, font=('Segoe UI', 13), height=60, width=580, fg_color='#b3d8f8', text_color="#000000", corner_radius=10, state='disabled')
+        self.output_box.pack(padx=10, pady=(0, 8), fill='both', expand=True)
+
+        # Save buttons for later reference
+        self.select_btn = select_btn
+        self.encrypt_btn = encrypt_btn
+        self.decrypt_btn = decrypt_btn
+
+        # Save buttons for later reference
+        self.select_btn = select_btn
+        self.encrypt_btn = encrypt_btn
+        self.decrypt_btn = decrypt_btn
+
+    def select_file(self):
+        import subprocess
+        import sys
+        import os
+        file_path = None
+        # Try to use system's default file explorer
+        if sys.platform.startswith('linux'):
+            # Try to use kdialog, zenity, or xdg-open
+            try:
+                # Try kdialog (KDE)
+                file_path = subprocess.check_output(['kdialog', '--getopenfilename'], universal_newlines=True).strip()
+            except Exception:
+                try:
+                    # Try zenity (GNOME)
+                    file_path = subprocess.check_output(['zenity', '--file-selection'], universal_newlines=True).strip()
+                except Exception:
+                    # Fallback to Tkinter dialog
+                    from tkinter import filedialog
+                    file_path = filedialog.askopenfilename()
+        elif sys.platform == 'darwin':
+            # macOS
+            try:
+                file_path = subprocess.check_output(['osascript', '-e', 'POSIX path of (choose file)'], universal_newlines=True).strip()
+            except Exception:
+                from tkinter import filedialog
+                file_path = filedialog.askopenfilename()
+        elif sys.platform == 'win32':
+            # Windows
+            from tkinter import filedialog
+            file_path = filedialog.askopenfilename()
+        else:
+            from tkinter import filedialog
+            file_path = filedialog.askopenfilename()
+
+        if file_path and os.path.isfile(file_path):
+            self.file_path = file_path
+            self.file_entry.configure(state='normal')
+            self.file_entry.delete(0, ctk.END)
+            self.file_entry.insert(0, file_path)
+            self.file_entry.configure(state='readonly')
+            self._set_output(f'Selected: {file_path}')
+        else:
+            self._set_output('No file selected.')
+
+    def encrypt_file(self):
+        if not hasattr(self, 'file_path') or not self.file_path:
+            self._set_output('Error: No file selected.')
+            return
+        try:
+            from Crypto.Cipher import AES, DES, DES3
+            from Crypto.Random import get_random_bytes
+            import os, json
+            alg = self.alg_var.get()
+            mode = self.mode_var.get()
+            with open(self.file_path, 'rb') as f:
+                data = f.read()
+            # Key selection and mode mapping, with PKCS7 padding for block ciphers
+            if alg == 'AES':
+                key = self.crypto_engine.key[:32]
+                cipher_mode = getattr(AES, f"MODE_{mode}")
+                if mode in ['CBC', 'ECB']:
+                    cipher = AES.new(key, cipher_mode)
+                    data = self._pkcs7_pad(data, AES.block_size)
+                else:
+                    cipher = AES.new(key, cipher_mode)
+            elif alg == 'DES':
+                key = self.crypto_engine.key[:8]
+                cipher_mode = getattr(DES, f"MODE_{mode}")
+                if mode in ['CBC', 'ECB']:
+                    cipher = DES.new(key, cipher_mode)
+                    data = self._pkcs7_pad(data, DES.block_size)
+                else:
+                    cipher = DES.new(key, cipher_mode)
+            elif alg == '3DES':
+                key = self.crypto_engine.key[:24]
+                cipher_mode = getattr(DES3, f"MODE_{mode}")
+                if mode in ['CBC', 'ECB']:
+                    cipher = DES3.new(key, cipher_mode)
+                    data = self._pkcs7_pad(data, DES3.block_size)
+                else:
+                    cipher = DES3.new(key, cipher_mode)
+            else:
+                self._set_output('Unsupported algorithm.')
+                return
+            if mode in ['CBC', 'GCM']:
+                ciphertext, tag = cipher.encrypt_and_digest(data) if mode == 'GCM' else (cipher.encrypt(data), b'')
+                header = json.dumps({
+                    'nonce': cipher.nonce.hex() if hasattr(cipher, 'nonce') else '',
+                    'iv': cipher.iv.hex() if hasattr(cipher, 'iv') else '',
+                    'tag': tag.hex() if tag else ''
+                }).encode() + b'\n'
+            else:  # ECB
+                ciphertext = cipher.encrypt(data)
+                header = json.dumps({}).encode() + b'\n'
+            filename = os.path.basename(self.file_path)
+            out_path = os.path.join('./storage/encrypted_files', filename + f'.{alg.lower()}_{mode.lower()}.enc')
+            with open(out_path, 'wb') as f:
+                f.write(header)
+                f.write(ciphertext)
+            self._set_output(f'Success: File encrypted and saved to {out_path}')
+        except Exception as e:
+            self._set_output(f'Error: Encryption failed: {e}')
+
+    def decrypt_file(self):
+        if not hasattr(self, 'file_path') or not self.file_path:
+            self._set_output('Error: No file selected.')
+            return
+            file_row = ctk.CTkFrame(frame, fg_color='#5a7bbd', corner_radius=15)
+            from Crypto.Cipher import AES, DES, DES3
+            import os, json
+            alg = self.alg_var.get()
+            mode = self.mode_var.get()
+            with open(self.file_path, 'rb') as f:
+                header = f.readline()
+                enc_dict = json.loads(header.decode())
+            options_box = ctk.CTkFrame(frame, fg_color='#5a7bbd', corner_radius=15)
+            if alg == 'AES':
+                key = self.crypto_engine.key[:32]
+                cipher_mode = getattr(AES, f"MODE_{mode}")
+                if mode == 'GCM':
+                    cipher = AES.new(key, cipher_mode, nonce=bytes.fromhex(enc_dict['nonce']))
+                    dec_bytes = cipher.decrypt_and_verify(ciphertext, bytes.fromhex(enc_dict['tag']))
+                elif mode == 'CBC':
+                    cipher = AES.new(key, cipher_mode, iv=bytes.fromhex(enc_dict['iv']))
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = AES.new(key, cipher_mode)
+                    action_box = ctk.CTkFrame(frame, fg_color='#5a7bbd', corner_radius=15)
+            elif alg == 'DES':
+                key = self.crypto_engine.key[:8]
+                cipher_mode = getattr(DES, f"MODE_{mode}")
+                if mode == 'GCM':
+                    self._set_output('DES does not support GCM mode.')
+                    return
+                elif mode == 'CBC':
+                    output_frame = ctk.CTkFrame(self.root, fg_color='#5a7bbd', corner_radius=15, width=620, height=120)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = DES.new(key, cipher_mode)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+            elif alg == '3DES':
+                key = self.crypto_engine.key[:24]
+                cipher_mode = getattr(DES3, f"MODE_{mode}")
+                if mode == 'GCM':
+                    self._set_output('3DES does not support GCM mode.')
+                    return
+                elif mode == 'CBC':
+                    cipher = DES3.new(key, cipher_mode, iv=bytes.fromhex(enc_dict['iv']))
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+                else:  # ECB
+                    cipher = DES3.new(key, cipher_mode)
+                    dec_bytes = self._pkcs7_unpad(cipher.decrypt(ciphertext))
+            else:
+                self._set_output('Unsupported algorithm.')
+                return
+            filename = os.path.basename(self.file_path)
+            if filename.endswith('.enc'):
+                filename = filename[:-4]
+            out_path = os.path.join('./storage/encrypted_files', filename + f'.decrypted')
+            with open(out_path, 'wb') as f:
+                f.write(dec_bytes)
+            self._set_output(f'Success: File decrypted and saved to {out_path}')
+        except Exception as g:
+            self._set_output(f'Error: Decryption failed: {g}')
+          
+
+    def _set_output(self, message):
+        self.output_box.configure(state='normal')
+        self.output_box.delete(1.0, 'end')
+        self.output_box.insert('end', message)
+        self.output_box.configure(state='disabled')
+
+if __name__ == '__main__':
+    root = ctk.Tk()
+    app = VaultApp(root)
+    root.mainloop()
