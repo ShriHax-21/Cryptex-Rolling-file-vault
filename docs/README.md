@@ -177,3 +177,9 @@ Most student crypto projects fail because they:
 
 This one doesn’t — **if you implement it properly**.
 
+
+
+
+
+
+<!-- use pyqt5 or 6 -->
