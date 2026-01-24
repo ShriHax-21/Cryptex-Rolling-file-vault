@@ -6,6 +6,7 @@ import customtkinter as ctk
 import tkinter.filedialog as filedialog
 import os
 from vault.explorer import VaultExplorer
+from core.key_manager import KeyManager
 
 class VaultApp:
     def _pkcs7_pad(self, data, block_size):
@@ -49,20 +50,34 @@ class VaultApp:
         self.key_manager = None
         self.crypto_engine = None
         self.password_frame = None
+        # metadata path
+        self.metadata_path = os.path.join('storage', 'metadata.json')
 
-        # Password prompt frame
+        # Password prompt / creation frame
+        pw_set = KeyManager.password_is_set(self.metadata_path)
         self.password_frame = ctk.CTkFrame(self.root, fg_color='#e3f0fc', corner_radius=18)
         self.password_frame.pack(fill='both', expand=True, padx=18, pady=18)
-        ctk.CTkLabel(self.password_frame, text='Enter Vault Password', font=('JetBrains Mono', 18, 'bold'), text_color='#155fa0').pack(pady=(30, 10))
+        if pw_set:
+            title_text = 'Enter Vault Password'
+        else:
+            title_text = 'Create Master Password (first run)'
+        ctk.CTkLabel(self.password_frame, text=title_text, font=('JetBrains Mono', 18, 'bold'), text_color='#155fa0').pack(pady=(30, 10))
         self.password_entry = ctk.CTkEntry(self.password_frame, show='*', font=('JetBrains Mono', 15), width=260, corner_radius=10)
-        self.password_entry.pack(pady=(0, 16))
-        # autofocus the password entry and bind Enter to unlock
+        self.password_entry.pack(pady=(0, 8))
+        self.confirm_entry = None
+        if not pw_set:
+            self.confirm_entry = ctk.CTkEntry(self.password_frame, show='*', font=('JetBrains Mono', 13), width=260, corner_radius=10)
+            self.confirm_entry.pack(pady=(0, 8))
+        # autofocus the password entry and bind Enter to unlock/set
         try:
             self.password_entry.focus_set()
             self.password_entry.bind('<Return>', lambda e: self.unlock_vault())
+            if self.confirm_entry:
+                self.confirm_entry.bind('<Return>', lambda e: self.unlock_vault())
         except Exception:
             pass
-        ctk.CTkButton(self.password_frame, text='Unlock', font=('JetBrains Mono', 14, 'bold'), fg_color='#1976d2', command=self.unlock_vault, width=140, height=38, corner_radius=12).pack(pady=(0, 20))
+        btn_text = 'Unlock' if pw_set else 'Set Password'
+        ctk.CTkButton(self.password_frame, text=btn_text, font=('JetBrains Mono', 14, 'bold'), fg_color='#1976d2', command=self.unlock_vault, width=140, height=38, corner_radius=12).pack(pady=(6, 12))
         self.unlock_status = ctk.CTkLabel(self.password_frame, text='', font=('JetBrains Mono', 12), text_color='#d32f2f')
         self.unlock_status.pack()
 
@@ -74,6 +89,23 @@ class VaultApp:
         # Setup vault session manager
         from core.vault_session import VaultSession
         metadata_path = os.path.join('storage', 'metadata.json')
+        # If no password exists yet, create it (first run)
+        if not KeyManager.password_is_set(metadata_path):
+            # require confirmation
+            if not self.confirm_entry:
+                self.unlock_status.configure(text='Confirmation required.')
+                return
+            confirm = self.confirm_entry.get()
+            if password != confirm:
+                self.unlock_status.configure(text='Passwords do not match!')
+                return
+            try:
+                km = KeyManager(password, metadata_path)
+                km.set_password(password)
+            except Exception as e:
+                self.unlock_status.configure(text=f'Failed to set password: {e}')
+                return
+        # proceed to create session and unlock using provided password
         self.master_secret = password
         try:
             self.vault_session = VaultSession(self.master_secret, metadata_path)

@@ -23,8 +23,14 @@ class VaultSession:
         self._lock_timeout = None
 
     def unlock(self):
+        # If a password is already set in metadata, verify it first
+        if KeyManager.password_is_set(self.metadata_path):
+            if not self.key_manager.verify_password(self.master_secret):
+                raise ValueError('Invalid vault password')
+
         key, salt = self.key_manager.get_latest_key()
         if key is None:
+            # no key material yet, create fresh salt/key
             key, salt = self.key_manager.rotate_key()
         self.key = key
         self.key_salt = salt
