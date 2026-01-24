@@ -95,17 +95,17 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Select file] --> B{Choose algorithm/mode}
-    B -->|AES-GCM| C[Derive key (PBKDF2) → AES-GCM encrypt]
-    B -->|AES-CBC| D[Derive key → PKCS7 pad → AES-CBC encrypt]
-    C --> E[Write header JSON (nonce, tag) + ciphertext]
+    A[Select file] --> B{Choose algorithm mode}
+    B -->|AES-GCM| C[Derive key PBKDF2 AES-GCM encrypt]
+    B -->|AES-CBC| D[Derive key PBKDF2 PKCS7 pad AES-CBC encrypt]
+    C --> E[Write header JSON nonce tag and ciphertext]
     D --> E
-    E --> F[Save to storage/encrypted/]
+    E --> F[Save to storage encrypted]
 
     subgraph Decrypt
-      G[Read header + ciphertext] --> H{Mode}
-      H -->|GCM| I[AES-GCM decrypt & verify tag]
-      H -->|CBC/ECB| J[AES decrypt → PKCS7 unpad]
+      G[Read header and ciphertext] --> H{Mode}
+      H -->|GCM| I[AES-GCM decrypt verify tag]
+      H -->|CBC/ECB| J[AES decrypt PKCS7 unpad]
     end
 ```
 
