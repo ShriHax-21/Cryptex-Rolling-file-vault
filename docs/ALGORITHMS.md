@@ -82,7 +82,7 @@ sequenceDiagram
     GUI->>KeyMgr: set_password(password)
     KeyMgr-->>GUI: saved salt+hash
     GUI->>VaultSession: create session with master_secret
-    VaultSession->>VaultSession: rotate_key() -> derive key & save salt
+    VaultSession->>VaultSession: rotate_key(); derive key & save salt
     VaultSession->>VaultSession: create vault_id (AES-GCM encrypt)
     VaultSession-->>GUI: unlocked
 
@@ -96,8 +96,8 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A[Select file] --> B{Choose algorithm/mode}
-    B -->|AES-GCM| C[Derive key (PBKDF2) -> AES-GCM encrypt]
-    B -->|AES-CBC| D[Derive key -> PKCS7 pad -> AES-CBC encrypt]
+    B -->|AES-GCM| C[Derive key (PBKDF2) / AES-GCM encrypt]
+    B -->|AES-CBC| D[Derive key / PKCS7 pad / AES-CBC encrypt]
     C --> E[Write header JSON (nonce, tag) + ciphertext]
     D --> E
     E --> F[Save to storage/encrypted/]
@@ -105,7 +105,7 @@ flowchart TD
     subgraph Decrypt
       G[Read header + ciphertext] --> H{Mode}
       H -->|GCM| I[AES-GCM decrypt & verify tag]
-      H -->|CBC/ECB| J[AES decrypt -> PKCS7 unpad]
+      H -->|CBC/ECB| J[AES decrypt / PKCS7 unpad]
     end
 ```
 
