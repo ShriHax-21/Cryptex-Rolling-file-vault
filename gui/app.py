@@ -5,6 +5,10 @@
 import customtkinter as ctk
 import tkinter.filedialog as filedialog
 from tkinter import messagebox
+import tkinter.simpledialog as simpledialog
+import subprocess
+import sys
+import shlex
 import os
 from vault.explorer import VaultExplorer
 from core.key_manager import KeyManager
@@ -128,9 +132,13 @@ class VaultApp:
         title = ctk.CTkLabel(frame, text='NetToss: secure vault', font=('JetBrains Mono', 20, 'bold'), text_color='#155fa0')
         title.pack(pady=(18, 10), fill='x')
 
-        # Reset vault button (dangerous: deletes metadata and storage)
-        reset_btn = ctk.CTkButton(frame, text='Reset Vault', font=('JetBrains Mono', 12, 'bold'), fg_color='#d32f2f', command=self.reset_vault, width=120, height=30, corner_radius=10)
-        reset_btn.pack(pady=(0, 8))
+        # Action buttons: Reset and Change Password
+        btn_row = ctk.CTkFrame(frame, fg_color='#eaf6ff', corner_radius=8)
+        btn_row.pack(pady=(0, 8))
+        reset_btn = ctk.CTkButton(btn_row, text='Reset Vault', font=('JetBrains Mono', 12, 'bold'), fg_color='#d32f2f', command=self.reset_vault, width=120, height=30, corner_radius=10)
+        reset_btn.pack(side='left', padx=(0, 8))
+        change_btn = ctk.CTkButton(btn_row, text='Change Password', font=('JetBrains Mono', 12, 'bold'), fg_color='#1976d2', command=self.change_password_prompt, width=160, height=30, corner_radius=10)
+        change_btn.pack(side='left')
 
         # Vault file explorer (from vault/explorer.py)
         # pass on_select callback so clicking a file updates the browse path
@@ -457,6 +465,37 @@ class VaultApp:
             self.root.destroy()
         except Exception:
             pass
+
+    def change_password_prompt(self):
+        if not hasattr(self, 'vault_session') or not self.vault_session:
+            messagebox.showinfo('Change Password', 'Vault session not initialized.')
+            return
+        # Ask for new password and confirmation
+        new_pw = simpledialog.askstring('Change Password', 'Enter new password:', show='*')
+        if not new_pw:
+            return
+        confirm = simpledialog.askstring('Change Password', 'Confirm new password:', show='*')
+        if new_pw != confirm:
+            messagebox.showerror('Change Password', 'Passwords do not match.')
+            return
+        ok = messagebox.askyesno('Change Password', 'Changing the password will migrate and re-encrypt vault data. This can be destructive if backups fail. Continue?')
+        if not ok:
+            return
+        # Run migration script using current Python executable
+        try:
+            script_path = os.path.join(os.getcwd(), 'scripts', 'change_password.py')
+            cmd = [sys.executable, script_path, '--new-password', new_pw]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                messagebox.showerror('Change Password Failed', f'Error: {proc.stderr or proc.stdout}')
+                return
+            messagebox.showinfo('Change Password', 'Password changed successfully. The application will now close.')
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+        except Exception as e:
+            messagebox.showerror('Change Password Failed', str(e))
 
 if __name__ == '__main__':
     root = ctk.Tk()

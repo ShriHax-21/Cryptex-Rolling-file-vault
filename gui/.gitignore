@@ -1,0 +1,22 @@
+# ===============================
+# Python / Virtual Environment
+# ===============================
+venv/
+__pycache__/
+*.pyc
+.env
+
+# ===============================
+# NetToss Vault - SENSITIVE DATA
+# ===============================
+storage/metadata.json
+storage/vault_id.bin
+storage/encrypted/
+storage/decrypted/
+storage/backup_*/
+
+# ===============================
+# OS / Editor junk
+# ===============================
+.DS_Store
+*.swp
