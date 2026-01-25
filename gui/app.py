@@ -4,6 +4,7 @@
 
 import customtkinter as ctk
 import tkinter.filedialog as filedialog
+from tkinter import messagebox
 import os
 from vault.explorer import VaultExplorer
 from core.key_manager import KeyManager
@@ -127,10 +128,15 @@ class VaultApp:
         title = ctk.CTkLabel(frame, text='NetToss: secure vault', font=('JetBrains Mono', 20, 'bold'), text_color='#155fa0')
         title.pack(pady=(18, 10), fill='x')
 
+        # Reset vault button (dangerous: deletes metadata and storage)
+        reset_btn = ctk.CTkButton(frame, text='Reset Vault', font=('JetBrains Mono', 12, 'bold'), fg_color='#d32f2f', command=self.reset_vault, width=120, height=30, corner_radius=10)
+        reset_btn.pack(pady=(0, 8))
+
         # Vault file explorer (from vault/explorer.py)
         # pass on_select callback so clicking a file updates the browse path
         self.vault_explorer = VaultExplorer(frame, on_select=self._on_vault_select)
         self.vault_explorer.pack(pady=(0, 10), fill='x', padx=10)
+
 
         # File selection row
         file_row = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
@@ -139,6 +145,7 @@ class VaultApp:
         select_btn.pack(side='left', padx=(0, 16))
         self.file_entry = ctk.CTkEntry(file_row, font=('JetBrains Mono', 13), height=36, corner_radius=12, state='readonly')
         self.file_entry.pack(side='left', fill='x', expand=True)
+
 
         # Crypto options box
         options_box = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
@@ -431,6 +438,25 @@ class VaultApp:
         self.output_box.delete(1.0, 'end')
         self.output_box.insert('end', message)
         self.output_box.configure(state='disabled')
+
+    def reset_vault(self):
+        # confirm destructive action
+        if not hasattr(self, 'vault_session') or not self.vault_session:
+            messagebox.showinfo('Reset Vault', 'Vault session not initialized.')
+            return
+        ok = messagebox.askyesno('Reset Vault', 'This will permanently delete all vault data (encrypted files, metadata). Continue?')
+        if not ok:
+            return
+        try:
+            self.vault_session.reset()
+        except Exception as e:
+            messagebox.showerror('Reset Failed', str(e))
+            return
+        messagebox.showinfo('Reset Complete', 'Vault has been reset. The application will close.')
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     root = ctk.Tk()

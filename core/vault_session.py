@@ -179,3 +179,50 @@ class VaultSession:
                     return dec, 'not_verified'
         except Exception:
             return b'', 'failed'
+
+    def reset(self, wipe_storage: bool = True):
+        """Reset the vault by wiping metadata, vault id, and optional storage folders.
+
+        WARNING: This permanently deletes encrypted data and metadata.
+        """
+        # Ensure any in-memory secrets are wiped
+        self.lock()
+
+        # Remove metadata file
+        try:
+            if os.path.exists(self.metadata_path):
+                os.remove(self.metadata_path)
+        except Exception:
+            pass
+
+        # Remove vault identity
+        try:
+            if os.path.exists(VAULT_ID_PATH):
+                os.remove(VAULT_ID_PATH)
+        except Exception:
+            pass
+
+        if wipe_storage:
+            # Wipe encrypted and decrypted storage directories
+            for d in (os.path.join('storage', 'encrypted'), os.path.join('storage', 'decrypted')):
+                try:
+                    if os.path.isdir(d):
+                        for root, dirs, files in os.walk(d):
+                            for name in files:
+                                try:
+                                    os.remove(os.path.join(root, name))
+                                except Exception:
+                                    pass
+                            for name in dirs:
+                                try:
+                                    os.rmdir(os.path.join(root, name))
+                                except Exception:
+                                    pass
+                        try:
+                            os.rmdir(d)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        return True
