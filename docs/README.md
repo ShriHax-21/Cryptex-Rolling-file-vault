@@ -99,7 +99,7 @@ This project **implements integrity by default** and optionally supports authent
 
 ## 🖥️ User Interface
 
-* **Language:** Python (Python 5 reference / Python 3.x compatible)
+* **Language:** Python 3.x
 * **GUI Toolkit:** Tkinter
 * Simple file selection
 * Encrypt / Decrypt buttons
@@ -155,6 +155,20 @@ Cryptex-Rolling-File-Vault/
 
 ---
 
+## 🗄️ Database (optional)
+
+This project includes an optional SQLite-backed metadata store implemented in `core/db.py`. When available, the code prefers the database for storing vault metadata and file blobs instead of writing JSON files to disk.
+
+- **Backend:** SQLite single-file database (default path: `vault.db`). The path can be overridden via the `SQLITE_DB_PATH` environment variable.
+- **Used by:** `KeyManager`, `VaultSession`, and `vault/file_manager` when `core.db.DB` can be imported and initialized.
+- **What it stores:** password metadata (`password_meta`), encryption keys (`keys`), file blobs/metadata (`files`), and generic key/value metadata (`meta`).
+- **Why use it:** centralizes metadata and file blobs into a single file (portable), and simplifies atomic updates compared to multiple JSON files.
+
+Security notes:
+
+- Ensure the DB file has restrictive filesystem permissions (owner-only) to protect secrets.
+- The current implementation may store derived key hex values in the DB for backward compatibility; we recommend migrating to storing only KDF parameters and an encrypted vault verifier (see `docs/architecture.md` for migration guidance).
+
 ---
 
 ## 🧠 Why This Project Matters
@@ -176,10 +190,4 @@ Most student crypto projects fail because they:
 * Have zero threat model
 
 This one doesn’t — **if you implement it properly**.
-
-
-
-
-
-
 <!-- use pyqt5 or 6 -->

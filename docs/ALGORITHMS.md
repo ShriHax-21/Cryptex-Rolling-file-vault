@@ -8,7 +8,7 @@ This document summarizes the cryptographic algorithms and formats used by Crypte
 - Randomness: `Crypto.Random.get_random_bytes()` for salts, IVs, nonces, and vault-id
 - Padding: PKCS#7 for block modes (CBC, ECB)
 - Integrity: AES-GCM authentication tag; for non-AEAD modes integrity is not authenticated
-- Metadata storage: `storage/metadata.json` stores password salt/hash/iterations and derived key salts
+ - Metadata storage: `storage/metadata.json` stores password salt/hash/iterations and derived key salts. Optionally an SQLite DB (`core/db.py`) may be used to store the same metadata and file blobs.
 
 ## Password handling
 - Passwords are salted and hashed with PBKDF2-HMAC-SHA256 using a per-password 16-byte salt and an iteration count (DEFAULT_ITERATIONS = 200000).
@@ -63,6 +63,11 @@ This document summarizes the cryptographic algorithms and formats used by Crypte
 - On first unlock a random `vault_id` is generated and encrypted with AES-GCM using the derived key; the encrypted blob is saved to `storage/vault_id.bin`.
 - On subsequent unlock attempts the blob is decrypted using the derived key to verify the password is correct. If decryption fails the unlock is rejected.
 
+Note on storage backends:
+
+- Filesystem backend (default): `storage/metadata.json` and `storage/vault_id.bin` are used to store metadata and the vault verifier.
+- Database backend (optional): `core/db.py` provides an SQLite schema with tables `password_meta`, `keys`, `files`, and `meta`. When the DB is present the code stores password metadata, key salts (and in current implementation, derived key hex values), the `vault_id` verifier in `meta`, and file blobs in `files`.
+
 ## Security remarks
 - Use a strong password. If the master password is lost, stored vault data cannot be decrypted.
 - AES-GCM authenticated encryption is used where available; CBC/ECB modes do not provide integrity protection.
@@ -111,10 +116,11 @@ flowchart TD
 
 ### Metadata / Storage layout (visual)
 
-- `storage/metadata.json` : stores password salt/hash/iterations and key salts/derived keys (hex)
-- `storage/vault_id.bin` : encrypted JSON blob (nonce/ciphertext/tag)
-- `storage/encrypted/` : encrypted files with `.enc` extension and header
-- `storage/decrypted/` : decrypted output files (written when user exports)
+ - `storage/metadata.json` : (filesystem backend) stores password salt/hash/iterations and key salts/derived keys (hex)
+ - `vault.db` / DB tables : (database backend) stores the same metadata and file blobs in `password_meta`, `keys`, `files`, and `meta` tables
+ - `storage/vault_id.bin` : encrypted JSON blob (nonce/ciphertext/tag) when using filesystem backend; otherwise `meta` table stores `vault_id`
+ - `storage/encrypted/` : encrypted files with `.enc` extension and header (filesystem backend)
+ - `storage/decrypted/` : decrypted output files (written when user exports)
 
 ## References (code locations)
 - Password & key handling: [core/key_manager.py](../core/key_manager.py)

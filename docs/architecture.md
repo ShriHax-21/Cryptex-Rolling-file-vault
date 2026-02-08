@@ -21,10 +21,17 @@ Cryptex is a local file vault application that protects files using symmetric en
 
 - Storage: `storage/metadata.json` — stores key metadata (salts/keys in current implementation) and `storage/encrypted/` / `storage/decrypted/` for file blobs.
 
+- Database (optional): `core/db.py` provides an SQLite-backed alternative to file-based storage. It defines tables for `password_meta`, `keys`, `files`, and generic `meta` values and is used when `DB` can be imported and initialized. The DB file defaults to `vault.db` and can be changed with the `SQLITE_DB_PATH` environment variable.
+
+  - When present, `KeyManager` will read/write password and keys to the DB, `VaultSession` will store the `vault_id` verifier in the DB `meta` table, and `vault/file_manager.py` will store encrypted file blobs in the DB `files` table instead of the filesystem.
+
+  - Important: the DB centralizes metadata and file blobs but still requires strong filesystem permissions to protect sensitive content. See `core/db.py` for schema and helper functions.
+
 ## Key derivation & algorithms (current implementation)
 
-- Key Derivation: SHA-256 of `master_secret || salt` in `KeyManager.derive_key`.
-  - Code: `derive_key(self, salt) -> sha256(self.master_secret.encode() + salt).digest()`
+- Key Derivation: PBKDF2-HMAC-SHA256 with a per-key salt and an iteration count.
+  - Implementation: `core/key_manager.py` uses `hashlib.pbkdf2_hmac('sha256', password, salt, iterations, dklen=32)` with `DEFAULT_ITERATIONS = 200_000`.
+  - Derivation call (conceptual): `pbkdf2_hmac('sha256', master_secret.encode(), salt, iterations, dklen=32)`
 - Symmetric cipher: AES with GCM or other modes in `CryptoEngine` / `core/crypto_engine.py`.
 - Vault identity: `VAULT_ID_PATH` contains a JSON blob with `nonce`, `ciphertext`, `tag` (AES-GCM) used to verify a candidate key can decrypt the vault identity.
 
