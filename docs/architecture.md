@@ -1,10 +1,10 @@
-# NetToss — Vault Architecture
+# Cryptex — Vault Architecture
 
-This document describes the high-level architecture, main components, data flows, file formats, and security recommendations for the NetToss Rolling File Vault project.
+This document describes the high-level architecture, main components, data flows, file formats, and security recommendations for the Cryptex Rolling File Vault project.
 
 ## Overview
 
-NetToss is a local file vault application that protects files using symmetric encryption. Major responsibilities are split across a small `core` library (cryptography and key management), a `vault` layer (file discovery and management), a `gui` (user interaction), and `storage` (on-disk metadata and encrypted blobs).
+Cryptex is a local file vault application that protects files using symmetric encryption. Major responsibilities are split across a small `core` library (cryptography and key management), a `vault` layer (file discovery and management), a `gui` (user interaction), and `storage` (on-disk metadata and encrypted blobs).
 
 ## Components
 
@@ -100,4 +100,4 @@ NetToss is a local file vault application that protects files using symmetric en
 The application currently provides a sensible separation of responsibilities, but several security-critical areas need improvement: adopt a strong KDF (PBKDF2/Argon2), stop storing derived keys on disk, and make vault initialization explicit. Implementing these changes will harden the vault against trivial unlocking and brute-force attacks.
 
 ---
-Created for the NetToss Rolling File Vault codebase.
+Created for the Cryptex Rolling File Vault codebase.

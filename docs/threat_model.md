@@ -1,4 +1,4 @@
-# Threat Model for Nettoss – Rolling File Vault
+# Threat Model for Cryptex – Rolling File Vault
 
 ## Threats
 - Unauthorized file access

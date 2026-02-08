@@ -1,4 +1,4 @@
-# NetToss Rolling File Vault: Roadmap to Full Vault Functionality
+# Cryptex Rolling File Vault: Roadmap to Full Vault Functionality
 
 ## 1. Vault File Management UI
 - Add a file browser/list in the GUI to show all files in the vault (`storage/encrypted`).

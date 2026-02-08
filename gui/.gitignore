@@ -7,7 +7,7 @@ __pycache__/
 .env
 
 # ===============================
-# NetToss Vault - SENSITIVE DATA
+# Cryptex Vault - SENSITIVE DATA
 # ===============================
 storage/metadata.json
 storage/vault_id.bin

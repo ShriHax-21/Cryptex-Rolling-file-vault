@@ -6,6 +6,10 @@ import threading
 import time
 from core.key_manager import KeyManager
 from core.crypto_engine import CryptoEngine
+try:
+    from core.db import DB
+except Exception:
+    DB = None
 
 VAULT_ID_PATH = os.path.join('storage', 'vault_id.bin')
 
@@ -14,7 +18,15 @@ class VaultSession:
     def __init__(self, master_secret: str, metadata_path: str = os.path.join('storage', 'metadata.json')):
         self.master_secret = master_secret
         self.metadata_path = metadata_path
-        self.key_manager = KeyManager(self.master_secret, self.metadata_path)
+        # initialize DB (SQLite single-file by default)
+        self.db = None
+        if DB is not None:
+            try:
+                self.db = DB()
+                self.db.init_db()
+            except Exception:
+                self.db = None
+        self.key_manager = KeyManager(self.master_secret, self.metadata_path, db=self.db)
         self.key = None
         self.key_salt = None
         self.crypto_engine = None
@@ -23,8 +35,8 @@ class VaultSession:
         self._lock_timeout = None
 
     def unlock(self):
-        # If a password is already set in metadata, verify it first
-        if KeyManager.password_is_set(self.metadata_path):
+        # If a password is already set in metadata (file or DB), verify it first
+        if KeyManager.password_is_set(self.metadata_path, db=self.db):
             if not self.key_manager.verify_password(self.master_secret):
                 raise ValueError('Invalid vault password')
 
@@ -36,27 +48,46 @@ class VaultSession:
         self.key_salt = salt
         self.crypto_engine = CryptoEngine(self.key)
         # Ensure vault identity exists and is decryptable with this key
-        if os.path.exists(VAULT_ID_PATH):
+        # Prefer DB meta 'vault_id' if available, otherwise fall back to filesystem
+        vault_meta = None
+        if self.db is not None:
+            try:
+                vault_meta = self.db.get_meta('vault_id')
+            except Exception:
+                vault_meta = None
+
+        if vault_meta:
+            try:
+                parts = json.loads(vault_meta)
+                cipher = AES.new(self.key, AES.MODE_GCM, nonce=bytes.fromhex(parts.get('nonce', '')))
+                cipher.decrypt_and_verify(bytes.fromhex(parts.get('ciphertext', '')), bytes.fromhex(parts.get('tag', '')))
+            except Exception:
+                raise ValueError('Vault identity verification failed. Wrong password or vault mismatch.')
+        elif os.path.exists(VAULT_ID_PATH):
             try:
                 with open(VAULT_ID_PATH, 'rb') as f:
                     blob = f.read()
-                # try decrypting with AES-GCM using key
-                # blob format: json({'nonce':..., 'ciphertext':..., 'tag':...})
                 parts = json.loads(blob.decode())
                 cipher = AES.new(self.key, AES.MODE_GCM, nonce=bytes.fromhex(parts.get('nonce', '')))
                 cipher.decrypt_and_verify(bytes.fromhex(parts.get('ciphertext', '')), bytes.fromhex(parts.get('tag', '')))
             except Exception:
-                # failed to decrypt vault id -> wrong password or corrupted vault id
                 raise ValueError('Vault identity verification failed. Wrong password or vault mismatch.')
         else:
-            # create vault id and write encrypted blob
+            # create vault id and write encrypted blob into DB if possible, otherwise filesystem
             vid = get_random_bytes(32).hex()
             payload = json.dumps({'vault_id': vid}).encode()
             cipher = AES.new(self.key, AES.MODE_GCM)
             ct, tag = cipher.encrypt_and_digest(payload)
             blob = json.dumps({'nonce': cipher.nonce.hex(), 'ciphertext': ct.hex(), 'tag': tag.hex()}).encode()
-            with open(VAULT_ID_PATH, 'wb') as f:
-                f.write(blob)
+            if self.db is not None:
+                try:
+                    self.db.set_meta('vault_id', blob.decode())
+                except Exception:
+                    with open(VAULT_ID_PATH, 'wb') as f:
+                        f.write(blob)
+            else:
+                with open(VAULT_ID_PATH, 'wb') as f:
+                    f.write(blob)
         self.unlocked = True
         return True
 
@@ -89,13 +120,41 @@ class VaultSession:
         """
         if not self.unlocked or self.key is None:
             raise ValueError('Vault is locked')
-        with open(file_path, 'rb') as f:
-            header = f.readline()
-            try:
-                enc_dict = json.loads(header.decode())
-            except Exception:
-                enc_dict = {}
-            ciphertext = f.read()
+        # support DB-backed files: if file_path does not exist and db present, try DB
+        enc_dict = {}
+        ciphertext = b''
+        if os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                header = f.readline()
+                try:
+                    enc_dict = json.loads(header.decode())
+                except Exception:
+                    enc_dict = {}
+                ciphertext = f.read()
+        else:
+            # try DB by treating file_path as filename
+            if self.db is not None:
+                name = os.path.basename(file_path)
+                try:
+                    row = self.db.get_file_by_name(name)
+                    if row and row.get('content') is not None:
+                        # content is stored as blob; assume first line is header
+                        content = row.get('content')
+                        if isinstance(content, memoryview):
+                            content = bytes(content)
+                        parts = content.split(b'\n', 1)
+                        header = parts[0] if parts else b''
+                        try:
+                            enc_dict = json.loads(header.decode())
+                        except Exception:
+                            enc_dict = {}
+                        ciphertext = parts[1] if len(parts) > 1 else b''
+                except Exception:
+                    pass
+            # if not found, raise
+        if not ciphertext:
+            # nothing to decrypt
+            return b'', 'failed'
 
         # Attempt to infer alg/mode from filename if not provided
         if not alg or not mode:

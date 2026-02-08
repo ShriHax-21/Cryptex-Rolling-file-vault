@@ -1,5 +1,5 @@
 # app.py
-# Tkinter GUI for Nettoss Rolling File Vault
+# Tkinter GUI for Cryptex Rolling File Vault
 
 
 import customtkinter as ctk
@@ -21,7 +21,7 @@ class VaultApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title('Nettoss – Rolling File Vault')
+        self.root.title('Cryptex – Rolling File Vault')
         self.master_secret = None
         self.key_manager = None
         self.crypto_engine = None
@@ -85,7 +85,7 @@ class VaultApp:
         except Exception as g:
             self._set_output(f'Error: Decryption failed: {g}')
         # Title
-        title = ctk.CTkLabel(frame, text='NetToss: secure vault', font=('Segoe UI', 20, 'bold'), text_color='#155fa0')
+        title = ctk.CTkLabel(frame, text='Cryptex: secure vault', font=('Segoe UI', 20, 'bold'), text_color='#155fa0')
         title.pack(pady=(18, 10), fill='x')
 
         # Vault file explorer (from vault/explorer.py)

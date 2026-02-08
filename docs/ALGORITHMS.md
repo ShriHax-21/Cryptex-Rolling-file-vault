@@ -1,6 +1,6 @@
 # Algorithms and Cryptographic Design
 
-This document summarizes the cryptographic algorithms and formats used by NetToss Rolling File Vault.
+This document summarizes the cryptographic algorithms and formats used by Cryptex Rolling File Vault.
 
 ## Overview
 - Master password handling: PBKDF2-HMAC-SHA256 (password hashing + key derivation)

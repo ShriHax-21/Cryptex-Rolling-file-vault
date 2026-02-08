@@ -1,5 +1,5 @@
 # app.py
-# Tkinter GUI for Nettoss Rolling File Vault
+# Tkinter GUI for Cryptex Rolling File Vault
 
 
 import customtkinter as ctk
@@ -12,6 +12,10 @@ import shlex
 import os
 from vault.explorer import VaultExplorer
 from core.key_manager import KeyManager
+try:
+    from core.db import DB
+except Exception:
+    DB = None
 
 class VaultApp:
     def _pkcs7_pad(self, data, block_size):
@@ -28,10 +32,15 @@ class VaultApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title('Nettoss – Rolling File Vault')
+        self.root.title('Cryptex – Rolling File Vault')
+        try:
+            self.root.withdraw()
+        except Exception:
+            pass
         # set the app window to fixed desktop size (840x690), center it and prevent resizing
         try:
-            w, h = 840, 690
+            # default size: wider/taller workspace
+            w, h = 1280, 840
             # compute center position
             self.root.update_idletasks()
             sw = self.root.winfo_screenwidth()
@@ -39,9 +48,15 @@ class VaultApp:
             x = max(0, (sw - w) // 2)
             y = max(0, (sh - h) // 2)
             self.root.geometry(f"{w}x{h}+{x}+{y}")
+            # store default size and allow dynamic resizing up to screen size
+            self.default_w, self.default_h = w, h
             self.root.minsize(w, h)
-            self.root.maxsize(w, h)
+            # allow growing up to screen resolution
+            self.root.maxsize(sw, sh)
+            # lock the window to the default size by default
             self.root.resizable(False, False)
+            # ensure max size equals default so window stays fixed
+            self.root.maxsize(w, h)
             # additional centering fallback for some window managers
             try:
                 # Tk 8.6+ supports placing the window centered via tk::PlaceWindow
@@ -54,12 +69,30 @@ class VaultApp:
         self.master_secret = None
         self.key_manager = None
         self.crypto_engine = None
+        # whether the window is currently dynamic/resizable (default: disabled/locked)
+        self.dynamic_size = False
         self.password_frame = None
-        # metadata path
         self.metadata_path = os.path.join('storage', 'metadata.json')
+        # DB helper (SQLite single-file vault.db by default)
+        self.db = None
+        if DB is not None:
+            try:
+                self.db = DB()
+                self.db.init_db()
+            except Exception:
+                self.db = None
+
+        # Enforce DB-only mode
+        if self.db is None:
+            messagebox.showerror('Database Required', 'This build requires database-backed storage. Ensure a SQLite DB is available (default vault.db) or set SQLITE_DB_PATH env var.')
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            return
 
         # Password prompt / creation frame
-        pw_set = KeyManager.password_is_set(self.metadata_path)
+        pw_set = KeyManager.password_is_set(self.metadata_path, db=self.db)
         self.password_frame = ctk.CTkFrame(self.root, fg_color='#e3f0fc', corner_radius=18)
         self.password_frame.pack(fill='both', expand=True, padx=18, pady=18)
         if pw_set:
@@ -95,7 +128,7 @@ class VaultApp:
         from core.vault_session import VaultSession
         metadata_path = os.path.join('storage', 'metadata.json')
         # If no password exists yet, create it (first run)
-        if not KeyManager.password_is_set(metadata_path):
+        if not KeyManager.password_is_set(metadata_path, db=self.db):
             # require confirmation
             if not self.confirm_entry:
                 self.unlock_status.configure(text='Confirmation required.')
@@ -105,7 +138,7 @@ class VaultApp:
                 self.unlock_status.configure(text='Passwords do not match!')
                 return
             try:
-                km = KeyManager(password, metadata_path)
+                km = KeyManager(password, metadata_path, db=self.db)
                 km.set_password(password)
             except Exception as e:
                 self.unlock_status.configure(text=f'Failed to set password: {e}')
@@ -129,7 +162,7 @@ class VaultApp:
         frame.pack(fill='both', expand=True, padx=18, pady=18)
 
         # Title
-        title = ctk.CTkLabel(frame, text='NetToss: secure vault', font=('JetBrains Mono', 20, 'bold'), text_color='#155fa0')
+        title = ctk.CTkLabel(frame, text='Cryptex: Rolling File Vault', font=('JetBrains Mono', 20, 'bold'), text_color='#155fa0')
         title.pack(pady=(18, 10), fill='x')
 
         # Action buttons: Reset and Change Password
@@ -139,6 +172,8 @@ class VaultApp:
         reset_btn.pack(side='left', padx=(0, 8))
         change_btn = ctk.CTkButton(btn_row, text='Change Password', font=('JetBrains Mono', 12, 'bold'), fg_color='#1976d2', command=self.change_password_prompt, width=160, height=30, corner_radius=10)
         change_btn.pack(side='left')
+
+        # (size is locked by default; toggle removed)
 
         # Vault file explorer (from vault/explorer.py)
         # pass on_select callback so clicking a file updates the browse path
@@ -176,6 +211,8 @@ class VaultApp:
         decrypt_btn.pack(side='left', padx=(20, 12), pady=12)
         view_btn = ctk.CTkButton(action_box, text='View', font=('JetBrains Mono', 15, 'bold'), fg_color='#2e7d32', command=self.view_file, width=120, height=48, corner_radius=16)
         view_btn.pack(side='left', padx=(8, 30), pady=12)
+        delete_btn = ctk.CTkButton(action_box, text='Delete', font=('JetBrains Mono', 15, 'bold'), fg_color='#d32f2f', command=self.delete_file, width=120, height=48, corner_radius=16)
+        delete_btn.pack(side='left', padx=(8, 30), pady=12)
 
         # Output box for status messages
         output_frame = ctk.CTkFrame(self.root, fg_color='#b3d8f8', corner_radius=15)
@@ -194,6 +231,21 @@ class VaultApp:
         # Vault state indicator
         self.state_label = ctk.CTkLabel(frame, text='Unlocked', font=('JetBrains Mono', 11, 'bold'), text_color='#2e7d32')
         self.state_label.pack(anchor='ne', padx=10, pady=(0, 0))
+
+        # schedule show+center after building the main UI so WM decorations settle
+        try:
+            def _show_and_center():
+                try:
+                    self.center_on_start()
+                except Exception:
+                    pass
+                try:
+                    self.root.deiconify()
+                except Exception:
+                    pass
+            self.root.after(50, _show_and_center)
+        except Exception:
+            pass
 
     def select_file(self):
         import subprocess
@@ -239,78 +291,162 @@ class VaultApp:
         else:
             self._set_output('No file selected.')
 
+    def center_window(self, width=None, height=None):
+        try:
+            w = width or getattr(self, 'default_w', 1280)
+            h = height or getattr(self, 'default_h', 840)
+            self.root.update_idletasks()
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            x = max(0, (sw - w) // 2)
+            y = max(0, (sh - h) // 2)
+            self.root.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            pass
+
+    def toggle_dynamic_size(self):
+        """Toggle whether the main window is resizable by the user."""
+        try:
+            if not getattr(self, 'dynamic_size', False):
+                # enable dynamic resizing
+                self.dynamic_size = True
+                self.root.resizable(True, True)
+                self.root.maxsize(self.root.winfo_screenwidth(), self.root.winfo_screenheight())
+                # update button label
+                try:
+                    self.toggle_size_btn.configure(text='Lock Size')
+                except Exception:
+                    pass
+            else:
+                # lock back to default fixed size
+                self.dynamic_size = False
+                self.root.resizable(False, False)
+                try:
+                    self.root.minsize(self.default_w, self.default_h)
+                    self.root.maxsize(self.default_w, self.default_h)
+                except Exception:
+                    pass
+                # re-center and enforce default geometry
+                self.center_window(self.default_w, self.default_h)
+                try:
+                    self.toggle_size_btn.configure(text='Enable Dynamic Size')
+                except Exception:
+                    pass
+            self._set_output(f"Window dynamic sizing: {'enabled' if self.dynamic_size else 'disabled'}")
+        except Exception as e:
+            self._set_output(f'Error toggling dynamic size: {e}')
+
     def _on_vault_select(self, filename):
         """Handle selection from the VaultExplorer listbox.
         Sets the browse path to the selected vault file.
         """
         if not filename:
             return
-        vault_path = os.path.join('storage', 'encrypted', filename)
-        if os.path.exists(vault_path):
-            self.file_path = vault_path
-            try:
-                self.file_entry.configure(state='normal')
-                self.file_entry.delete(0, ctk.END)
-                self.file_entry.insert(0, vault_path)
-                self.file_entry.configure(state='readonly')
-            except Exception:
-                pass
-            self._set_output(f'Selected from vault: {vault_path}')
+        # DB-only: explorer lists filenames and they are DB keys
+        if not hasattr(self, 'db') or self.db is None:
+            self._set_output('Error: Database not available.')
+            return
+        self.file_path = filename
+        try:
+            self.file_entry.configure(state='normal')
+            self.file_entry.delete(0, ctk.END)
+            self.file_entry.insert(0, filename)
+            self.file_entry.configure(state='readonly')
+        except Exception:
+            pass
+        self._set_output(f'Selected from vault (DB): {filename}')
 
     def view_file(self):
-        """Decrypt the selected file into memory and show a secure preview window."""
+        """Decrypt the selected file into memory and show a secure preview window.
+        Supports DB-backed files when `USE_DB=1` and `self.db` initialized.
+        """
         if not hasattr(self, 'file_path') or not self.file_path:
             self._set_output('Error: No file selected.')
             return
         try:
-            # use vault_session for in-memory decryption and integrity status
             data, status = self.vault_session.decrypt_in_memory(self.file_path)
-            # open a Toplevel preview
             preview = ctk.CTkToplevel(self.root)
             preview.title('Preview')
-            preview.geometry('700x500')
-            # show integrity/auth feedback
+            # position the preview to the right/top of the main window so dialogs
+            # opened from it don't block the main UI
+            try:
+                pw, ph = 700, 500
+                self.root.update_idletasks()
+                preview.update_idletasks()
+                rw = self.root.winfo_width() or getattr(self, 'default_w', 1280)
+                rh = self.root.winfo_height() or getattr(self, 'default_h', 840)
+                rx = self.root.winfo_x()
+                ry = self.root.winfo_y()
+                # place preview on the right half of the main window
+                px = rx + max(20, int(rw * 0.45))
+                py = ry + 30
+                sw = self.root.winfo_screenwidth()
+                sh = self.root.winfo_screenheight()
+                # clamp to screen
+                px = min(max(0, px), sw - pw)
+                py = min(max(0, py), sh - ph)
+                preview.geometry(f"{pw}x{ph}+{px}+{py}")
+            except Exception:
+                try:
+                    preview.geometry('700x500')
+                except Exception:
+                    pass
+            try:
+                preview.transient(self.root)
+                preview.lift()
+                preview.focus_force()
+            except Exception:
+                pass
             status_label = ctk.CTkLabel(preview, text=f'Integrity: {status}', font=('JetBrains Mono', 12, 'bold'))
             status_label.pack(anchor='w', padx=10, pady=(8, 4))
-            # attempt to decode as UTF-8 text
             try:
                 text = data.decode('utf-8')
                 box = ctk.CTkTextbox(preview, width=660, height=380, font=('JetBrains Mono', 12))
                 box.insert('0.0', text)
             except Exception:
-                # binary: show hex
-                hextext = data.hex()
                 box = ctk.CTkTextbox(preview, width=660, height=380, font=('JetBrains Mono', 11))
-                box.insert('0.0', hextext)
+                box.insert('0.0', data.hex())
             box.pack(padx=10, pady=(0, 8), fill='both', expand=True)
-            # export and close buttons
             btn_frame = ctk.CTkFrame(preview)
             btn_frame.pack(pady=(0, 10))
             def export():
                 from tkinter import filedialog
-                dst = filedialog.asksaveasfilename()
-                if dst:
+                # parent the dialog to the preview so it appears over it
+                dst = filedialog.asksaveasfilename(parent=preview, initialdir=os.path.expanduser('~/Downloads'))
+                if not dst:
+                    return
+                # prevent accidental saving to hidden files: warn if filename starts with a dot
+                bn = os.path.basename(dst)
+                if bn.startswith('.'):
+                    if not messagebox.askyesno('Hidden File', f"You're saving a hidden file '{bn}'. Continue?"):
+                        return
+                try:
                     with open(dst, 'wb') as f:
                         f.write(data)
                     self._set_output(f'Exported decrypted file to {dst}')
+                except Exception as e:
+                    self._set_output(f'Error: Export failed: {e}')
+
             def close_preview():
-                # wipe sensitive data references
                 try:
                     box.delete('0.0', 'end')
                 except Exception:
                     pass
                 preview.destroy()
+
             export_btn = ctk.CTkButton(btn_frame, text='Export', command=export, fg_color='#1976d2')
             export_btn.pack(side='left', padx=(6, 6))
             close_btn = ctk.CTkButton(btn_frame, text='Close', command=close_preview, fg_color='#bdbdbd')
             close_btn.pack(side='left', padx=(6, 6))
-            # when preview closed, ensure memory cleared by losing references
         except Exception as e:
             self._set_output(f'Error: View failed: {e}')
 
     def encrypt_file(self):
         if not hasattr(self, 'file_path') or not self.file_path:
             self._set_output('Error: No file selected.')
+            return
+        if not hasattr(self, 'db') or self.db is None:
+            self._set_output('Error: Database not configured. Cannot store encrypted file.')
             return
         try:
             from Crypto.Cipher import AES, DES, DES3
@@ -320,53 +456,49 @@ class VaultApp:
             mode = self.mode_var.get()
             with open(self.file_path, 'rb') as f:
                 data = f.read()
-            # Key selection and mode mapping, with PKCS7 padding for block ciphers
+
             if alg == 'AES':
                 key = self.crypto_engine.key[:32]
                 cipher_mode = getattr(AES, f"MODE_{mode}")
+                cipher = AES.new(key, cipher_mode)
                 if mode in ['CBC', 'ECB']:
-                    cipher = AES.new(key, cipher_mode)
                     data = self._pkcs7_pad(data, AES.block_size)
-                else:
-                    cipher = AES.new(key, cipher_mode)
             elif alg == 'DES':
                 key = self.crypto_engine.key[:8]
                 cipher_mode = getattr(DES, f"MODE_{mode}")
+                cipher = DES.new(key, cipher_mode)
                 if mode in ['CBC', 'ECB']:
-                    cipher = DES.new(key, cipher_mode)
                     data = self._pkcs7_pad(data, DES.block_size)
-                else:
-                    cipher = DES.new(key, cipher_mode)
             elif alg == '3DES':
                 key = self.crypto_engine.key[:24]
                 cipher_mode = getattr(DES3, f"MODE_{mode}")
+                cipher = DES3.new(key, cipher_mode)
                 if mode in ['CBC', 'ECB']:
-                    cipher = DES3.new(key, cipher_mode)
                     data = self._pkcs7_pad(data, DES3.block_size)
-                else:
-                    cipher = DES3.new(key, cipher_mode)
             else:
                 self._set_output('Unsupported algorithm.')
                 return
-            if mode in ['CBC', 'GCM']:
-                ciphertext, tag = cipher.encrypt_and_digest(data) if mode == 'GCM' else (cipher.encrypt(data), b'')
-                header = json.dumps({
-                    'nonce': cipher.nonce.hex() if hasattr(cipher, 'nonce') else '',
-                    'iv': cipher.iv.hex() if hasattr(cipher, 'iv') else '',
-                    'tag': tag.hex() if tag else ''
-                }).encode() + b'\n'
-            else:  # ECB
+
+            if mode == 'GCM':
+                ciphertext, tag = cipher.encrypt_and_digest(data)
+            else:
                 ciphertext = cipher.encrypt(data)
-                header = json.dumps({}).encode() + b'\n'
+                tag = b''
+
+            header = json.dumps({
+                'nonce': getattr(cipher, 'nonce', b'').hex() if hasattr(cipher, 'nonce') else '',
+                'iv': getattr(cipher, 'iv', b'').hex() if hasattr(cipher, 'iv') else '',
+                'tag': tag.hex() if tag else ''
+            }).encode() + b'\n'
+
             filename = os.path.basename(self.file_path)
-            # ensure encrypted output directory exists
-            enc_dir = os.path.join('storage', 'encrypted')
-            os.makedirs(enc_dir, exist_ok=True)
-            out_path = os.path.join(enc_dir, filename + f'.{alg.lower()}_{mode.lower()}.enc')
-            with open(out_path, 'wb') as f:
-                f.write(header)
-                f.write(ciphertext)
-            self._set_output(f'Success: File encrypted and saved to {out_path}')
+            enc_name = filename + f'.{alg.lower()}_{mode.lower()}.enc'
+
+            # DB-only: store encrypted blob in database
+            content = header + ciphertext
+            self.db.store_file_blob(enc_name, content, nonce=(getattr(cipher, 'nonce', b'').hex() if hasattr(cipher, 'nonce') else None), iv=(getattr(cipher, 'iv', b'').hex() if hasattr(cipher, 'iv') else None), tag=(tag.hex() if tag else None), alg=alg, mode=mode)
+            self._set_output(f'Success: File encrypted and stored in DB as {enc_name}')
+
             try:
                 if hasattr(self, 'vault_explorer') and self.vault_explorer:
                     self.vault_explorer.refresh()
@@ -379,15 +511,29 @@ class VaultApp:
         if not hasattr(self, 'file_path') or not self.file_path:
             self._set_output('Error: No file selected.')
             return
+        if not hasattr(self, 'db') or self.db is None:
+            self._set_output('Error: Database not configured. Cannot retrieve encrypted file.')
+            return
         try:
             from Crypto.Cipher import AES, DES, DES3
             import os, json
             alg = self.alg_var.get()
             mode = self.mode_var.get()
-            with open(self.file_path, 'rb') as f:
-                header = f.readline()
-                enc_dict = json.loads(header.decode())
-                ciphertext = f.read()
+
+            # fetch content from DB
+            name = self.file_path if os.path.basename(self.file_path) == self.file_path else os.path.basename(self.file_path)
+            row = self.db.get_file_by_name(name)
+            if not row or row.get('content') is None:
+                self._set_output('Error: File not found in DB')
+                return
+            content = row.get('content')
+            if isinstance(content, memoryview):
+                content = bytes(content)
+            parts = content.split(b'\n', 1)
+            header = parts[0] if parts else b'{}'
+            enc_dict = json.loads(header.decode())
+            ciphertext = parts[1] if len(parts) > 1 else b''
+
             if alg == 'AES':
                 key = self.crypto_engine.key[:32]
                 cipher_mode = getattr(AES, f"MODE_{mode}")
@@ -427,19 +573,62 @@ class VaultApp:
             else:
                 self._set_output('Unsupported algorithm.')
                 return
+
             filename = os.path.basename(self.file_path)
             if filename.endswith('.enc'):
                 filename = filename[:-4]
-            # ensure decrypted output directory exists
-            dec_dir = os.path.join('storage', 'decrypted')
-            os.makedirs(dec_dir, exist_ok=True)
-            out_path = os.path.join(dec_dir, filename + f'.decrypted')
-            with open(out_path, 'wb') as f:
-                f.write(dec_bytes)
-            self._set_output(f'Success: File decrypted and saved to {out_path}')
+            # Prompt user for save location instead of writing to storage/
+            from tkinter import filedialog
+            dst = filedialog.asksaveasfilename(initialdir=os.path.expanduser('~/Downloads'), initialfile=(filename + '.decrypted'))
+            if not dst:
+                self._set_output('Decryption cancelled (no destination chosen).')
+                return
+            bn = os.path.basename(dst)
+            if bn.startswith('.'):
+                if not messagebox.askyesno('Hidden File', f"You're saving a hidden file '{bn}'. Continue?"):
+                    self._set_output('Decryption cancelled (hidden filename)')
+                    return
+            try:
+                with open(dst, 'wb') as f:
+                    f.write(dec_bytes)
+                self._set_output(f'Success: File decrypted and saved to {dst}')
+            except Exception as e:
+                self._set_output(f'Error: Decryption failed when saving: {e}')
         except Exception as e:
             self._set_output(f'Error: Decryption failed: {e}')
           
+
+    def delete_file(self):
+        """Delete the selected vault file from the DB after confirmation."""
+        if not hasattr(self, 'file_path') or not self.file_path:
+            self._set_output('Error: No file selected to delete.')
+            return
+        if not hasattr(self, 'db') or self.db is None:
+            self._set_output('Error: Database not configured. Cannot delete file.')
+            return
+        name = self.file_path if os.path.basename(self.file_path) == self.file_path else os.path.basename(self.file_path)
+        ok = messagebox.askyesno('Delete File', f'Permanently delete "{name}" from the vault?')
+        if not ok:
+            self._set_output('Delete cancelled.')
+            return
+        try:
+            self.db.delete_file_by_name(name)
+            try:
+                if hasattr(self, 'vault_explorer') and self.vault_explorer:
+                    self.vault_explorer.refresh()
+            except Exception:
+                pass
+            # clear selection
+            try:
+                self.file_entry.configure(state='normal')
+                self.file_entry.delete(0, ctk.END)
+                self.file_entry.configure(state='readonly')
+            except Exception:
+                pass
+            self.file_path = None
+            self._set_output(f'Success: Deleted {name} from vault')
+        except Exception as e:
+            self._set_output(f'Error: Delete failed: {e}')
 
     def _set_output(self, message):
         self.output_box.configure(state='normal')

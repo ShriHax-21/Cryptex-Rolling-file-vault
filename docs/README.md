@@ -1,5 +1,5 @@
 
-# 🔐 Nettoss – Rolling File Vault
+# 🔐 Cryptex – Rolling File Vault
 
 **Secure Cryptographic File Storage with Key Rotation & Integrity Guarantees**
 
@@ -7,7 +7,7 @@
 
 ## 📌 Project Overview
 
-**Nettoss – Rolling File Vault** is a cybersecurity-focused project that implements a **secure file storage system** using **strong cryptographic primitives**, **automatic key rotation**, and **cryptographic integrity verification**.
+**Cryptex – Rolling File Vault** is a cybersecurity-focused project that implements a **secure file storage system** using **strong cryptographic primitives**, **automatic key rotation**, and **cryptographic integrity verification**.
 
 The system is designed to:
 
@@ -112,7 +112,7 @@ No CLI-only nonsense. This is usable by non-technical users.
 ## 📂 Project Architecture
 
 ```
-Nettoss-Rolling-File-Vault/
+Cryptex-Rolling-File-Vault/
 │
 ├── core/
 │   ├── crypto_engine.py
