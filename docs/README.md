@@ -155,7 +155,7 @@ Cryptex-Rolling-File-Vault/
 
 ---
 
-## 🗄️ Database (optional)
+## 🗄️ Database
 
 This project includes an optional SQLite-backed metadata store implemented in `core/db.py`. When available, the code prefers the database for storing vault metadata and file blobs instead of writing JSON files to disk.
 
