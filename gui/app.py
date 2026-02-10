@@ -202,11 +202,29 @@ class VaultApp:
         mode_menu = ctk.CTkComboBox(options_box, variable=self.mode_var, values=['CBC', 'GCM', 'ECB'], font=('JetBrains Mono', 12), width=90, height=32, corner_radius=8, state='readonly')
         mode_menu.pack(side='left', padx=(0, 12))
 
+        # Compatibility indicator
+        self.compat_label = ctk.CTkLabel(options_box, text='', font=('JetBrains Mono', 11, 'bold'))
+        self.compat_label.pack(side='left', padx=(8, 4))
+        # update on selection change
+        def _on_alg_mode_change(*_):
+            self._update_compatibility()
+        try:
+            self.alg_var.trace_add('write', _on_alg_mode_change)
+            self.mode_var.trace_add('write', _on_alg_mode_change)
+            self._update_compatibility()
+        except Exception:
+            try:
+                self.alg_var.trace('w', _on_alg_mode_change)
+                self.mode_var.trace('w', _on_alg_mode_change)
+                self._update_compatibility()
+            except Exception:
+                pass
+
         # Action buttons in a box
         action_box = ctk.CTkFrame(frame, fg_color='#b3d8f8', corner_radius=15)
         action_box.pack(pady=(10, 16), fill='x', padx=10)
-        encrypt_btn = ctk.CTkButton(action_box, text='Encrypt', font=('JetBrains Mono', 15, 'bold'), fg_color='#1976d2', command=self.encrypt_file, width=160, height=48, corner_radius=16)
-        encrypt_btn.pack(side='left', padx=(30, 20), pady=12)
+        self.encrypt_btn = ctk.CTkButton(action_box, text='Encrypt', font=('JetBrains Mono', 15, 'bold'), fg_color='#1976d2', command=self.encrypt_file, width=160, height=48, corner_radius=16)
+        self.encrypt_btn.pack(side='left', padx=(30, 20), pady=12)
         decrypt_btn = ctk.CTkButton(action_box, text='Decrypt', font=('JetBrains Mono', 15, 'bold'), fg_color='#155fa0', command=self.decrypt_file, width=160, height=48, corner_radius=16)
         decrypt_btn.pack(side='left', padx=(20, 12), pady=12)
         view_btn = ctk.CTkButton(action_box, text='View', font=('JetBrains Mono', 15, 'bold'), fg_color='#2e7d32', command=self.view_file, width=120, height=48, corner_radius=16)
@@ -224,7 +242,6 @@ class VaultApp:
 
         # Save buttons for later reference
         self.select_btn = select_btn
-        self.encrypt_btn = encrypt_btn
         self.decrypt_btn = decrypt_btn
         self.view_btn = view_btn
 
@@ -399,14 +416,32 @@ class VaultApp:
                 pass
             status_label = ctk.CTkLabel(preview, text=f'Integrity: {status}', font=('JetBrains Mono', 12, 'bold'))
             status_label.pack(anchor='w', padx=10, pady=(8, 4))
+            # Decide preview strategy: text vs binary
             try:
+                filename = os.path.basename(self.file_path) if isinstance(self.file_path, str) else ''
+                ext = os.path.splitext(filename)[1].lower()
+            except Exception:
+                ext = ''
+
+            binary_exts = ('.pdf', '.docx', '.doc', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.gif', '.bmp')
+            is_text = False
+            if ext and ext not in binary_exts:
+                try:
+                    data.decode('utf-8')
+                    is_text = True
+                except Exception:
+                    is_text = False
+
+            if is_text:
                 text = data.decode('utf-8')
                 box = ctk.CTkTextbox(preview, width=660, height=380, font=('JetBrains Mono', 12))
                 box.insert('0.0', text)
-            except Exception:
-                box = ctk.CTkTextbox(preview, width=660, height=380, font=('JetBrains Mono', 11))
-                box.insert('0.0', data.hex())
-            box.pack(padx=10, pady=(0, 8), fill='both', expand=True)
+                box.pack(padx=10, pady=(0, 8), fill='both', expand=True)
+            else:
+                # For binary files (PDF/office/images/etc) avoid rendering large hex or raw bytes.
+                label = ctk.CTkLabel(preview, text=f'Binary file preview not available for "{filename}". Use Export or Open.', wraplength=640)
+                label.pack(padx=10, pady=(10, 8))
+                box = None
             btn_frame = ctk.CTkFrame(preview)
             btn_frame.pack(pady=(0, 10))
             def export():
@@ -427,6 +462,26 @@ class VaultApp:
                 except Exception as e:
                     self._set_output(f'Error: Export failed: {e}')
 
+            def open_with_default():
+                # write to a temp file with original extension and open with system default viewer
+                import tempfile, subprocess
+                try:
+                    suffix = ext or ''
+                    tf = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    tf.write(data)
+                    tf.close()
+                    # Use xdg-open on Linux
+                    if os.name == 'posix':
+                        subprocess.Popen(['xdg-open', tf.name])
+                    else:
+                        try:
+                            os.startfile(tf.name)
+                        except Exception:
+                            subprocess.Popen(['open', tf.name])
+                    self._set_output(f'Opened temporary decrypted file: {tf.name}')
+                except Exception as e:
+                    self._set_output(f'Error: Open failed: {e}')
+
             def close_preview():
                 try:
                     box.delete('0.0', 'end')
@@ -436,12 +491,56 @@ class VaultApp:
 
             export_btn = ctk.CTkButton(btn_frame, text='Export', command=export, fg_color='#1976d2')
             export_btn.pack(side='left', padx=(6, 6))
+            open_btn = ctk.CTkButton(btn_frame, text='Open', command=open_with_default, fg_color='#009688')
+            open_btn.pack(side='left', padx=(6, 6))
             close_btn = ctk.CTkButton(btn_frame, text='Close', command=close_preview, fg_color='#bdbdbd')
             close_btn.pack(side='left', padx=(6, 6))
         except Exception as e:
             self._set_output(f'Error: View failed: {e}')
 
+    def _update_compatibility(self):
+        """Update compatibility label and toggle Encrypt button based on selection."""
+        mapping = {
+            'AES': ['GCM', 'CBC', 'ECB'],
+            'DES': ['CBC', 'ECB'],
+            '3DES': ['CBC', 'ECB']
+        }
+        alg = self.alg_var.get() if hasattr(self, 'alg_var') else None
+        mode = self.mode_var.get() if hasattr(self, 'mode_var') else None
+        compat = False
+        if alg in mapping and mode in mapping[alg]:
+            compat = True
+        if compat:
+            try:
+                self.compat_label.configure(text='Compatible', text_color='#2e7d32')
+            except Exception:
+                pass
+            try:
+                self.encrypt_btn.configure(state='normal')
+            except Exception:
+                pass
+        else:
+            try:
+                self.compat_label.configure(text='Incompatible', text_color='#d32f2f')
+            except Exception:
+                pass
+            try:
+                self.encrypt_btn.configure(state='disabled')
+            except Exception:
+                pass
+
     def encrypt_file(self):
+        # check selected algorithm/mode compatibility
+        mapping = {
+            'AES': ['GCM', 'CBC', 'ECB'],
+            'DES': ['CBC', 'ECB'],
+            '3DES': ['CBC', 'ECB']
+        }
+        alg = self.alg_var.get()
+        mode = self.mode_var.get()
+        if alg not in mapping or mode not in mapping[alg]:
+            self._set_output(f'Error: Selected mode {mode} is not compatible with {alg}.')
+            return
         if not hasattr(self, 'file_path') or not self.file_path:
             self._set_output('Error: No file selected.')
             return
