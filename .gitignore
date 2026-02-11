@@ -1,0 +1,9 @@
+# Local database file
+vault.db
+
+# Ignore Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/

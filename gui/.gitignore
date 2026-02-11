@@ -11,3 +11,5 @@ __pycache__/
 # Swap files
 *.swp
 *.kate-swp
+
+/venv
