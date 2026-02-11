@@ -1,1 +1,13 @@
-# GUI-specific ignores (none)
+# Database files
+vault.db
+*.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Swap files
+*.swp
+*.kate-swp
